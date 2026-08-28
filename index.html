@@ -299,44 +299,8 @@
   </div>
 
   <!-- ─── Preview ────────────────────────────────────────────────────────────── -->
-  <div id="preview-section" class="hidden bg-white rounded-xl shadow-md border border-slate-200 p-6 md:p-8 slide-in">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-      <h2 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
-        <svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
-        Preview
-      </h2>
-      <div class="flex flex-wrap gap-3" id="stats-row"></div>
-    </div>
-
-    <!-- collapse/expand all -->
-    <div class="flex gap-2 mb-3">
-      <button onclick="expandAllGroups()" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded-lg transition-colors">
-        Expand All
-      </button>
-      <button onclick="collapseAllGroups()" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded-lg transition-colors">
-        Collapse All
-      </button>
-      <span class="text-xs text-slate-400 flex items-center">Click a group row to toggle staff</span>
-    </div>
-
-    <div class="overflow-x-auto rounded-lg border border-slate-200">
-      <table class="w-full text-sm">
-        <thead class="bg-blue-600 text-white">
-          <tr>
-            <th class="px-4 py-3 text-left font-semibold w-8"></th><!-- chevron -->
-            <th class="px-4 py-3 text-left font-semibold">Date</th>
-            <th class="px-4 py-3 text-left font-semibold">Type</th>
-            <th class="px-4 py-3 text-left font-semibold">V.No</th>
-            <th class="px-4 py-3 text-left font-semibold">Ledger Name</th>
-            <th class="px-4 py-3 text-right font-semibold">Amount</th>
-            <th class="px-4 py-3 text-center font-semibold">Dr/Cr</th>
-            <th class="px-4 py-3 text-left font-semibold">Narration</th>
-          </tr>
-        </thead>
-        <tbody id="preview-body" class="divide-y divide-slate-200"></tbody>
-      </table>
-    </div>
-  </div>
+  <!-- preview trigger placeholder (modal lives outside flow) -->
+  <div id="preview-section" class="hidden"></div>
 
 </div><!-- /space-y-6 -->
 </div><!-- /p-4 -->
@@ -459,7 +423,7 @@ function updateNarPreview() {
     const subject = document.getElementById('subject-input').value.trim() || '[Subject]';
     const prefix = voucherType === 'Journal' ? 'Being' : 'Towards';
     document.getElementById('nar-preview').textContent =
-      `${prefix} ${subject} for the month of ${label} - [Team] Team [Designation] as per the list attached.`;
+      `${prefix} ${subject} for the month of ${label} [Team] Team [Designation] as per the list attached.`;
   }
 }
 
@@ -655,11 +619,21 @@ function suggestLedgerName(empId, rawName) {
 }
 
 function copyToClipboard(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
     const orig = btn.innerHTML;
     btn.innerHTML = `<svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>`;
     setTimeout(() => { btn.innerHTML = orig; }, 1500);
-  });
+  } catch(e) {
+    showToast('Copy failed — please copy manually');
+  }
 }
 
 // ─── Generate ────────────────────────────────────────────────────────────────
@@ -821,18 +795,29 @@ function hideGenerationAnimation() {
 
 // ─── Preview (collapsible) ──────────────────────────────────────────────────
 function togglePreview() {
-  const ps = document.getElementById('preview-section');
+  const backdrop = document.getElementById('preview-backdrop');
   const btn = document.getElementById('preview-btn');
-  if (ps.classList.contains('hidden')) {
-    renderPreview();
-    ps.classList.remove('hidden');
-    ps.scrollIntoView({ behavior:'smooth' });
-    btn.innerHTML = `<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg><span>Hide Preview</span>`;
-  } else {
-    ps.classList.add('hidden');
+  const isOpen = !backdrop.classList.contains('hidden');
+  if (isOpen) {
+    backdrop.classList.add('hidden');
+    document.body.style.overflow = '';
     btn.innerHTML = `<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg><span>View Preview</span>`;
+  } else {
+    renderPreview();
+    backdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    btn.innerHTML = `<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg><span>Hide Preview</span>`;
   }
 }
+
+function closePreviewIfBackdrop(e) {
+  if (e.target === document.getElementById('preview-backdrop')) togglePreview();
+}
+
+// Esc key closes modal
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('preview-backdrop').classList.contains('hidden')) togglePreview();
+});
 
 function renderPreview() {
   const tbody = document.getElementById('preview-body');
@@ -1002,7 +987,7 @@ function clearAll() {
   document.getElementById('file-name').textContent = '';
   document.getElementById('file-input').value = '';
   document.getElementById('upload-status').classList.add('hidden');
-  document.getElementById('preview-section').classList.add('hidden');
+  document.getElementById('preview-backdrop').classList.add('hidden'); document.body.style.overflow = ''; document.getElementById('preview-section').classList.add('hidden');
   document.getElementById('preview-btn').classList.add('hidden');
   document.getElementById('dl-btn').classList.add('hidden');
   document.getElementById('missing-ledgers-section').classList.add('hidden');
@@ -1011,5 +996,63 @@ function clearAll() {
   showToast('Cleared');
 }
 </script>
+
+<!-- ─── Preview Modal ─────────────────────────────────────────────────────── -->
+<div id="preview-backdrop" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.55);" onclick="closePreviewIfBackdrop(event)">
+  <div class="bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-7xl" style="height:92vh;max-height:92vh;">
+
+    <!-- header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
+      <div class="flex items-center gap-3">
+        <svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
+        <h2 class="text-lg font-semibold text-slate-900">Voucher Preview</h2>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex flex-wrap gap-2" id="stats-row"></div>
+        <button onclick="togglePreview()" class="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Close (Esc)">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- toolbar -->
+    <div class="flex items-center gap-2 px-6 py-2 border-b border-slate-100 bg-slate-50 flex-shrink-0">
+      <button onclick="expandAllGroups()" class="text-xs px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold rounded-lg transition-colors">Expand All</button>
+      <button onclick="collapseAllGroups()" class="text-xs px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold rounded-lg transition-colors">Collapse All</button>
+      <span class="text-xs text-slate-400 hidden md:inline">· Click a group row to toggle staff</span>
+      <div class="ml-auto">
+        <button onclick="downloadExcel()" class="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-green-600 to-green-700 text-white text-xs font-semibold rounded-lg hover:from-green-700 hover:to-green-800 transition-all shadow-sm">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zm7-18l-7 7h4v6h6v-6h4l-7-7z"/></svg>
+          Download Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- scrollable table -->
+    <div class="flex-1 overflow-auto">
+      <table class="w-full text-sm" style="min-width:900px;">
+        <thead class="bg-blue-600 text-white" style="position:sticky;top:0;z-index:10;">
+          <tr>
+            <th class="px-3 py-3 text-left font-semibold" style="width:32px;"></th>
+            <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Date</th>
+            <th class="px-4 py-3 text-left font-semibold">Type</th>
+            <th class="px-4 py-3 text-left font-semibold">V.No</th>
+            <th class="px-4 py-3 text-left font-semibold">Ledger Name</th>
+            <th class="px-4 py-3 text-right font-semibold whitespace-nowrap">Amount</th>
+            <th class="px-4 py-3 text-center font-semibold">Dr/Cr</th>
+            <th class="px-4 py-3 text-left font-semibold">Narration</th>
+          </tr>
+        </thead>
+        <tbody id="preview-body" class="divide-y divide-slate-200"></tbody>
+      </table>
+    </div>
+
+    <!-- footer -->
+    <div class="flex items-center justify-end gap-3 px-6 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0 rounded-b-2xl">
+      <button onclick="togglePreview()" class="px-5 py-2 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-100 transition-colors text-sm">Close</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
