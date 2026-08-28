@@ -651,7 +651,7 @@ function toTitleCase(str) {
 function suggestLedgerName(empId, rawName) {
   // Format: "EmpId - Title Case Name"
   const title = toTitleCase(rawName);
-  return empId ? `${empId} - ${title}` : title;
+  return empId ? `${title} - ${empId}` : title;
 }
 
 function copyToClipboard(text, btn) {
