@@ -942,7 +942,21 @@ function downloadExcel() {
     'Ledger Name','Ledger Amount','LeDger Amount Dr/Cr','Voucher Narration'
   ];
   // Only export actual accounting rows (skip internal header markers — all rows go through)
-  const data = [headers, ...generatedRows.map(r => [
+  // Payment vouchers: bank ledger (Cr) must be the last row of each voucher
+  let exportRows = generatedRows;
+  if (voucherType === 'Payment') {
+    const order = [], byVoucher = {};
+    generatedRows.forEach(r => {
+      if (!byVoucher[r.voucherNumber]) { byVoucher[r.voucherNumber] = []; order.push(r.voucherNumber); }
+      byVoucher[r.voucherNumber].push(r);
+    });
+    exportRows = [];
+    order.forEach(n => {
+      const rows = byVoucher[n];
+      exportRows.push(...rows.filter(r => r._rowType !== 'bank-header'), ...rows.filter(r => r._rowType === 'bank-header'));
+    });
+  }
+  const data = [headers, ...exportRows.map(r => [
     r.voucherDate, r.voucherType, r.voucherNumber,
     r.ledgerName, r.amount, r.drCr, r.narration
   ])];
