@@ -290,6 +290,9 @@
           <button onclick="continueWithMissing()" class="px-4 py-2 bg-amber-600 text-white font-semibold rounded-lg hover:bg-amber-700 transition-colors">
             Continue Anyway
           </button>
+          <button onclick="downloadMissingLedgers()" class="px-4 py-2 bg-white border border-amber-300 text-amber-800 font-semibold rounded-lg hover:bg-amber-100 transition-colors">
+            Download List (Excel)
+          </button>
           <button onclick="cancelGeneration()" class="px-4 py-2 border border-amber-300 text-amber-700 font-semibold rounded-lg hover:bg-amber-50 transition-colors">
             Cancel
           </button>
@@ -321,6 +324,7 @@ const GID_BANK  = '1706750205';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let voucherType   = 'Journal';
+let duplicateRows = [], duplicatesAcknowledged = false, voucherMismatches = [];
 let narrationMode = 'auto';
 let uploadedData  = [];
 let staffLedgers  = {};
@@ -585,6 +589,18 @@ function handleFile(file) {
           });
         }
 
+        // Duplicate payment detection (same employee + same amount)
+        const dupMap = {}; duplicateRows = [];
+        uploadedData.forEach((r, idx) => {
+          const k = `${(r.empId || r.name).toString().toUpperCase()}||${r.amount}`;
+          (dupMap[k] = dupMap[k] || []).push(r);
+        });
+        Object.values(dupMap).forEach(list => { if (list.length > 1) duplicateRows.push(list); });
+        duplicatesAcknowledged = false;
+        if (duplicateRows.length) {
+          showToast(`Warning: ${duplicateRows.length} duplicate entr${duplicateRows.length>1?'ies':'y'} found`);
+        }
+
         const st = document.getElementById('upload-status');
         document.getElementById('upload-status-text').textContent = `${uploadedData.length} records loaded`;
         st.classList.remove('hidden');
@@ -646,6 +662,13 @@ function generate() {
   const bankLedger  = document.getElementById('bank-select').value;
   if (voucherType === 'Payment' && !bankLedger) { showError('Select a bank ledger for Payment Voucher.'); return; }
 
+  if (duplicateRows.length && !duplicatesAcknowledged) {
+    const lines = duplicateRows.slice(0, 10).map(l => `• ${l[0].name} (${l[0].empId || 'no ID'}) — ₹${l[0].amount} × ${l.length}`).join('\n');
+    const more = duplicateRows.length > 10 ? `\n…and ${duplicateRows.length - 10} more` : '';
+    if (!confirm(`Duplicate entries found (same employee & amount):\n\n${lines}${more}\n\nContinue anyway?`)) return;
+    duplicatesAcknowledged = true;
+  }
+
   const missing = checkMissingLedgers();
   if (missing.length > 0) {
     showMissingLedgersAlert(missing);
@@ -670,7 +693,21 @@ function checkMissingLedgers() {
   return missing;
 }
 
+let lastMissing = [];
+function downloadMissingLedgers() {
+  if (!lastMissing.length) return;
+  const data = [['Emp ID','Name','Designation','Suggested Ledger Name'],
+    ...lastMissing.map(m => [m.empId, m.name, m.designation, suggestLedgerName(m.empId, m.name)])];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch:12},{wch:32},{wch:14},{wch:40}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Missing Ledgers');
+  XLSX.writeFile(wb, 'Missing_Ledgers.xlsx');
+  showToast('Missing ledger list downloaded');
+}
+
 function showMissingLedgersAlert(missing) {
+  lastMissing = missing;
   const listDiv = document.getElementById('missing-ledgers-list');
   listDiv.innerHTML = missing.map(m => {
     const suggested = suggestLedgerName(m.empId, m.name);
@@ -780,8 +817,24 @@ function proceedWithGeneration(vDateSerial, vDateDisp, bankLedger) {
 
     hideGenerationAnimation();
     document.getElementById('preview-btn').classList.remove('hidden');
-    document.getElementById('dl-btn').classList.remove('hidden');
-    showToast(`Generated ${vNum - 1} vouchers · ${generatedRows.length} rows`);
+
+    // Dr = Cr validation per voucher
+    const tot = {};
+    generatedRows.forEach(r => {
+      const t = tot[r.voucherNumber] = tot[r.voucherNumber] || { dr: 0, cr: 0 };
+      t[r.drCr === 'Dr' ? 'dr' : 'cr'] += r.amount;
+    });
+    voucherMismatches = Object.entries(tot)
+      .filter(([, t]) => Math.abs(t.dr - t.cr) > 0.005)
+      .map(([n, t]) => ({ n, dr: t.dr, cr: t.cr }));
+    if (voucherMismatches.length) {
+      document.getElementById('dl-btn').classList.add('hidden');
+      showError('Dr/Cr mismatch in voucher(s): ' + voucherMismatches.slice(0, 10)
+        .map(m => `#${m.n} (Dr ${m.dr.toFixed(2)} ≠ Cr ${m.cr.toFixed(2)})`).join(', ') + '. Download blocked.');
+    } else {
+      document.getElementById('dl-btn').classList.remove('hidden');
+      showToast(`Generated ${vNum - 1} vouchers · ${generatedRows.length} rows · all balanced ✓`);
+    }
   }, 6000);
 }
 
@@ -968,6 +1021,21 @@ function downloadExcel() {
   ws['!cols'] = [{wch:13},{wch:14},{wch:14},{wch:48},{wch:14},{wch:16},{wch:80}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Accounting Voucher');
+
+  // Summary sheet for approval sign-off
+  const heads = generatedRows.filter(r => r._rowType === 'team-dr' || r._rowType === 'bank-header');
+  const sum = [['Voucher No','Team','Designation','Staff Count','Total Amount','Ledger','Dr = Cr']];
+  heads.forEach(h => {
+    const vr = generatedRows.filter(r => r.voucherNumber === h.voucherNumber);
+    const dr = vr.filter(r => r.drCr === 'Dr').reduce((a, r) => a + r.amount, 0);
+    const cr = vr.filter(r => r.drCr === 'Cr').reduce((a, r) => a + r.amount, 0);
+    sum.push([h.voucherNumber, h._team, h._desig, h._count, h.amount, h.ledgerName, Math.abs(dr - cr) < 0.005 ? 'OK' : 'MISMATCH']);
+  });
+  const grand = heads.reduce((a, h) => a + h.amount, 0);
+  sum.push(['', '', 'GRAND TOTAL', heads.reduce((a, h) => a + h._count, 0), grand, '', '']);
+  const ws2 = XLSX.utils.aoa_to_sheet(sum);
+  ws2['!cols'] = [{wch:12},{wch:24},{wch:16},{wch:12},{wch:16},{wch:44},{wch:10}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
   const { label } = getMonthYear();
   XLSX.writeFile(wb, `${voucherType}_Voucher_${label.replace("'","")}.xlsx`);
   showToast('Excel downloaded!');
@@ -998,6 +1066,7 @@ function showToast(m) {
 function clearAll() {
   uploadedData = []; generatedRows = []; voucherDateFromFile = null;
   pendingGenerationData = null; groupOpenState = {};
+  duplicateRows = []; duplicatesAcknowledged = false; voucherMismatches = []; lastMissing = [];
   document.getElementById('file-name').textContent = '';
   document.getElementById('file-input').value = '';
   document.getElementById('upload-status').classList.add('hidden');
